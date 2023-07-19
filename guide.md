@@ -29,9 +29,10 @@ npm init -y
 
 3.- Create basic project structure
 ```bash
-touch index.js README.md .gitignore .env .env.example
+touch index.js README.md .gitignore .env .env.example seeds.js
 mkdir src
 mkdir public
+mkdir public/uploads
 mkdir src/config src/models src/controllers src/routes src/middlewares
 touch src/app.js
 ```
@@ -57,7 +58,7 @@ package-lock.json
 5.- add libraries
 
 ```bash
-npm install express pg pg-hstore sequelize cors dotenv express-handlebars jsonwebtoken morgan bcrypt -E
+npm install express pg pg-hstore sequelize cors dotenv express-handlebars jsonwebtoken morgan express-fileupload bcrypt -E
 ```
 
 add "development" libraries
@@ -68,10 +69,13 @@ npm i nodemon -D -E
 
 in your `package.json` update "scripts":
 
+**IMPORTANT: 'EXPORT' is for linux users and Mac users, for windows users use 'SET'
+
 ```json
 "scripts": {
 	"test": "echo \"Error: no test specified\" && exit 1",
 	"dev": "export NODE_ENV=development && nodemon index.js",
+	"seed": "export NODE_ENV=development && nodemon seeds.js",
 	"start": "node index.js",
 	"prod": "export NODE_ENV=production && npm run start"
 },
@@ -91,11 +95,12 @@ SECRET_TOKEN="<YOUR_CREDENTIALS>"
 **In your `.env`, DO NOT USE `""`**
 
 7.- **OPTIONAL**, add linter
+**IF YOU ARE NOT FAMILIARIZED WITH ESLINT DONT USE IT, YET**
 ```bash
 npm init @eslint/config
 ```
 
-**Chose: import, node, no typescript, force style, standard, install dependencies, save as json format**
+**Choose: check syntax, find problems and enforece, import, none, no typescript, select node using `spacebar`, popular - standard, json, install dependencies - npm**
 
 In your `.eslintrc.json` add
 
@@ -235,7 +240,7 @@ in `navbar.handlebars` add:
 ```html
 <nav class="navbar navbar-expand-lg bg-body-tertiary">
 	<div class="container-fluid">
-		<a class="navbar-brand" href="#">Navbar</a>
+		<a class="navbar-brand" href="#" id="messageNavbar">Navbar</a>
 		<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
 			aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
 			<span class="navbar-toggler-icon"></span>
@@ -246,24 +251,51 @@ in `navbar.handlebars` add:
 					<a class="nav-link active" aria-current="page" id="home" href="/">Home</a>
 				</li>
 				<li class="nav-item">
-					<a class="nav-link" id="products" href="/products">Products</a>
+					<a class="nav-link" id="employees" href="/employees">Employees</a>
 				</li>
 				<li class="nav-item">
-					<a class="nav-link" id="profile" href="/profile">Profile</a>
+					<a class="nav-link" id="signup" href="/signup">Singup</a>
 				</li>
 				<li class="nav-item">
 					<a class="nav-link" id="login" href="/login">Login</a>
 				</li>
 				<li class="nav-item">
-					<a class="nav-link" id="logout" href="/logout">Logout</a>
+					<a class="nav-link" id="logout" href="">Logout</a>
 				</li>
 			</ul>
 		</div>
 	</div>
 </nav>
+
+<script>
+
+	let token = localStorage.getItem("token")
+	let linkLogin = document.getElementById("login")
+	let linkLogout = document.getElementById("logout")
+	let messageNavbar = document.getElementById("messageNavbar")
+	let linkEmployees = document.getElementById("employees")
+
+	if (token) {
+		linkLogin.style.display = "none"
+		let user = JSON.parse(localStorage.getItem("user"))
+		messageNavbar.innerText = user.email
+	} else {
+		linkLogout.style.display = "none"
+		linkEmployees.style.display = "none"
+	}
+
+	linkLogout.addEventListener("click", (event) => {
+		event.preventDefault()
+		localStorage.clear()
+		location.href = "/"
+	})
+</script>
 ```
 
-**HERE, CHANGE THE LINKS ACCORDING YOUR PROJECT**
+**HERE, CHANGE THE LINKS ACCORDING YOUR PROJECT, IIN THIS EXAMPLE IT WILL GO TO `/employees`, BECUASE OF**
+```js
+let linkEmployees = document.getElementById("employees")
+```
 
 in `home.handlebars` add:
 
@@ -418,9 +450,10 @@ import express from 'express'
 import morgan from 'morgan'
 import cors from 'cors'
 import { create } from 'express-handlebars'
+import upload from 'express-fileupload'
 
 // ROUTES
-// import routerUsers from './routes/users.routes.js'
+// import routerUsers from './routes/users.router.js'
 
 import * as path from 'path'
 import { fileURLToPath } from 'url'
@@ -441,6 +474,7 @@ app.use(express.json())
 app.use(cors())
 app.use(morgan('tiny'))
 app.use(express.urlencoded({ extended: true }))
+app.use(upload())
 
 app.use('/public', express.static(path.join(__dirname, '../public')))
 
@@ -602,11 +636,70 @@ export const deleteUserById = async (req, res) => {
 }
 ```
 
+**YOU CAN USE `login` and `signup` in `user`. For this case, `addUser` will be use as `signup` route
+
+- `user.router.js`
+```js
+router.post('/signup', addUser)
+router.post('/login', emitToken, loginUser)
+```
+
+- `user.controller.js`
+```js
+export const addUser = async (req, res) => {
+	try {
+		const { username, email, password } = req.body
+
+		const salt = bcrypt.genSaltSync(10)
+		const hashPassword = bcrypt.hashSync(password, salt)
+
+		const [user, created] = await User.findOrCreate({
+			where: { email },
+			defaults: {
+				username, email, password: hashPassword
+			}
+		})
+
+		if (!created) {
+			return res.status(400).send({
+				code: 400,
+				message: `User '${user.email}' already exists!`
+			})
+		}
+
+		res.status(201).send({
+			code: 201,
+			message: 'User created successfully'
+		})
+	} catch (err) {
+		return res.status(400).send({
+			code: 400,
+			message: `💩, Error to create a new User. ${err}`
+		})
+	}
+}
+
+export const loginUser = async (req, res) => {
+	try {
+		res.status(200).send({
+			code: 200,
+			token: req.token,
+			user: req.user
+		})
+	} catch (err) {
+		return res.status(400).send({
+			code: 400,
+			message: `💩, Error to login User. ${err.message}`
+		})
+	}
+}
+```
+
 17.- Test yout endpoints in `postman`
 
 18.- git add and commit
 
-19.- `View` flow
+19.- `View` flow, If you used user as `signup` and `login` leave `View` only for frontend 'views' with handlebars
 ```bash
 touch src/routes/views.router.js src/controllers/views.controller.js
 ```
@@ -654,23 +747,42 @@ export const login = async (req, res) => {
 }
 ```
 
-20.- add `emitToken` and `verifyToken` function in `auth.moddleware.js`
+20.- add `emitToken` and `verifyToken` function in `auth.middleware.js`
+```bash
+touch ./src/middlewares/auth.middleware.js
+```
+
 ```js
 import jwt from 'jsonwebtoken'
 import User from '../models/User.model.js'
+import 'dotenv'
+
+import jwt from 'jsonwebtoken'
+import User from '../models/User.model.js'
+import bcrypt from 'bcrypt'
 import 'dotenv'
 
 export const emitToken = async (req, res, next) => {
 	try {
 		const { email, password } = req.body
 		const user = await User.findOne({
-			where: { email, password },
-			attributes: ['id', 'username', 'email']
+			where: { email },
+			attributes: ['id', 'username', 'email', 'password']
 		})
 
 		if (user === null) {
 			res.status(400).send({ code: 400, message: 'authentication error' })
 		}
+
+		const hashPassword = await bcrypt.compare(password, user.password)
+
+		if (hashPassword) {
+			if (user === null) {
+				res.status(400).send({ code: 400, message: 'authentication error. check your credentials.' })
+			}
+		}
+
+		delete user.password
 
 		const token = jwt.sign({
 			exp: Math.floor(Date.now() / 1000) + 60 * 10,
@@ -1044,3 +1156,73 @@ export default uploadFiles;
 23.- Test your app
 
 24.- git add and commit
+
+25.- add a `seeds.js` file to upload mock data. or `Post.image`, cyou have to add a `default.png` file in your `public` folder. otherwise it will be null and it won't work
+
+```js
+import sequelize from './src/config/db.config.js'
+import bcrypt from 'bcrypt'
+import 'dotenv/config'
+
+import './src/models/Associations.js'
+import User from './src/models/User.model.js'
+import Post from './src/models/Post.model.js'
+
+const main = async () => {
+	try {
+		await sequelize.authenticate()
+		await sequelize.sync({ force: true })
+		const password = '123456'
+		const salt = bcrypt.genSaltSync(10)
+		const passwordHash = bcrypt.hashSync(password, salt)
+
+		// FOR THIS CHECK YOUR MODELS
+		const user1 = User.create({
+			username: 'Dale',
+			password: `${passwordHash}`,
+			email: 'eugiat@outlook.couk'
+		})
+
+		console.log(typeof user1.password)
+
+		const user2 = User.create({
+			username: 'Astra',
+			password: `${passwordHash}`,
+			email: 'nec.eleifend@outlook.org'
+		})
+
+		const user3 = User.create({
+			username: 'Leone',
+			password: `${passwordHash}`,
+			email: 'Destany.Powlowski@yahoo.com'
+		})
+
+		await Post.create({
+			title: '',
+			content: 'Content post 1',
+			image: './public/default.jpeg',
+			authorId: user1.id
+		})
+
+		await Post.create({
+			title: 'Post 1',
+			content: 'Content post 1',
+			image: './public/default.jpeg',
+			authorId: user1.id
+		})
+
+		await Post.create({
+			title: 'Post 2',
+			content: 'Content post 2',
+			image: './public/default.jpeg',
+			authorId: user2.id
+		})
+
+		await sequelize.close()
+	} catch (err) {
+		console.log(`Error to upload 'seed' file, ${err}`)
+	}
+}
+
+main()
+```
